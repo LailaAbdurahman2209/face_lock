@@ -28,6 +28,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
   final TextEditingController _pinController = TextEditingController();
 
   bool _isLoading = false;
+  bool _obscurePin = true; // Track visibility state for PIN
   String? _apiError;
 
   final Color brandCyan = const Color(0xFF00D4FF);
@@ -73,7 +74,6 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
           // Grab the customer_id from response data
           final String customerId = responseData['customer_id']?.toString() ?? '';
 
-          //  WHAT WAS MISSING
           widget.onNextPressed(
             _nameController.text.trim(),
             _idNumberController.text.trim(),
@@ -101,11 +101,12 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
     }
   }
 
-  InputDecoration _customInputDecoration(String label, IconData icon) {
+  InputDecoration _customInputDecoration(String label, IconData icon, {Widget? suffixIcon}) {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: Colors.white70),
       prefixIcon: Icon(icon, color: brandCyan),
+      suffixIcon: suffixIcon,
       filled: true,
       fillColor: const Color(0xFF061833),
       enabledBorder: OutlineInputBorder(
@@ -220,14 +221,28 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // PIN Field
+                  // PIN Field with Eye Toggle Icon
                   TextFormField(
                     controller: _pinController,
                     style: const TextStyle(color: Colors.white),
                     keyboardType: TextInputType.number,
-                    obscureText: true,
+                    obscureText: _obscurePin,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: _customInputDecoration('Supervisor PIN', Icons.lock),
+                    decoration: _customInputDecoration(
+                      'Supervisor PIN',
+                      Icons.lock,
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePin ? Icons.visibility_off : Icons.visibility,
+                          color: brandCyan,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePin = !_obscurePin;
+                          });
+                        },
+                      ),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter the PIN';

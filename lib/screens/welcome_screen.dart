@@ -117,8 +117,8 @@ class WelcomeScreen extends StatelessWidget {
                 // Action Buttons
                 Column(
                   children: [
-                    // Show Register Button ONLY IF NOT enrolled yet
-                    if (!isEnrolled) ...[
+                    // Shows ONLY Register if not enrolled, ONLY Sign In if enrolled
+                    if (!isEnrolled)
                       SizedBox(
                         width: double.infinity,
                         height: 56,
@@ -140,32 +140,30 @@ class WelcomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    
-                    // Sign In Button (Changes text/role based on state, always visible if enrolled)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: buttonBlue, width: 2),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: buttonBlue,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: onSignInPressed,
+                          child: const Text(
+                            'Sign In',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        onPressed: onSignInPressed,
-                        child: Text(
-                          isEnrolled ? 'Sign In' : 'Already Registered',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            color: buttonBlue,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
