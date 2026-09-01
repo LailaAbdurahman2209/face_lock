@@ -1,4 +1,4 @@
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+//import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -139,35 +139,8 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         await Future.delayed(const Duration(milliseconds: 100));
       }
 
-      // --- CRITICAL GATEKEEPER ADDITION ---
-      // Run ML Kit explicitly on the photo file before allowing enrollment or matching
-      final inputImage = InputImage.fromFilePath(photo.path);
-      final faceDetector = FaceDetector(
-        options: FaceDetectorOptions(
-          enableLandmarks: true,
-          performanceMode: FaceDetectorMode.accurate,
-        ),
-      );
-      
-      try {
-        final faces = await faceDetector.processImage(inputImage);
-        if (faces.isEmpty) {
-          throw Exception('NO_FACE_DETECTED');
-        }
-        final face = faces.first;
-        // Check for essential landmarks to block foreheads, ceilings, and walls
-        if (face.landmarks[FaceLandmarkType.leftEye] == null ||
-            face.landmarks[FaceLandmarkType.rightEye] == null ||
-            face.landmarks[FaceLandmarkType.bottomMouth] == null) {
-          throw Exception('INCOMPLETE_FACE');
-        }
-      } finally {
-        await faceDetector.close();
-      }
-      // -------------------------------------
-      
       if (_enrolling) {
-        print('REGISTERING USER: Name: ${widget.employeeName}, ID: ${widget.employeeId}, PIN: ${widget.employeePin}');
+        print('REGISTERING USER: Name: ${widget.employeeName}, ID: ${widget.employeeId}, PIN: ${widget.employeePin}, Customer ID: ${widget.customerId}');
         await FaceLock.instance.enroll(photo.path);
         await UserStorage.saveUserData(
           systemId: widget.customerId,
@@ -198,6 +171,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       if (mounted) setState(() => _busy = false);
     }
   }
+
   Future<void> executeClockInApiCall(BuildContext context) async {
     showDialog(
       context: context,

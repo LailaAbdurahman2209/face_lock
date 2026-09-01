@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:io';
 import 'package:face_verification/face_verification.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
@@ -11,7 +12,7 @@ class FaceLock {
   static const sampleId = 'primary';
   
   // Set match threshold strictly between 0.65 and 0.70
-  static const matchThreshold = 0.68; 
+  static const matchThreshold = 0.58; 
 
   bool _ready = false;
 
@@ -25,7 +26,7 @@ class FaceLock {
     return FaceVerification.instance.isFaceRegistered(ownerId);
   }
 
-Future<void> _validateFullFacePresent(String imagePath) async {
+  Future<void> _validateFullFacePresent(String imagePath) async {
     final file = File(imagePath);
     if (!await file.exists()) {
       throw Exception('Image file does not exist.');
@@ -34,9 +35,9 @@ Future<void> _validateFullFacePresent(String imagePath) async {
     final faceDetector = FaceDetector(
       options: FaceDetectorOptions(
         enableLandmarks: true,
-        enableClassification: true, // <-- ADDED: Required for eye visibility/probabilities
+        enableClassification: true, 
         performanceMode: FaceDetectorMode.accurate,
-        minFaceSize: 0.25, // Requires face to occupy at least 25% of frame
+        minFaceSize: 0.35, 
       ),
     );
 
@@ -44,44 +45,83 @@ Future<void> _validateFullFacePresent(String imagePath) async {
       final inputImage = InputImage.fromFilePath(imagePath);
       final faces = await faceDetector.processImage(inputImage);
 
-      if (faces.isEmpty) {
-        throw Exception('NO_FACE_DETECTED');
-      }
-      if (faces.length > 1) {
-        throw Exception('MULTIPLE_FACES');
-      }
+      if (faces.isEmpty) throw Exception('NO_FACE_DETECTED');
+      if (faces.length > 1) throw Exception('MULTIPLE_FACES');
 
       final face = faces.first;
+      final box = face.boundingBox;
 
-      // ---> ADDED: Strict head pose angle checks <---
-      final rotY = face.headEulerAngleY; // Left/Right turn
-      final rotZ = face.headEulerAngleZ; // Tilt (ear-to-shoulder)
+    
+     
+      // A full face centered in frame will always have its bounding box start further down.
+      if (box.top < 50.0) {
+        throw Exception('INCOMPLETE_FACE');
+      }
 
-      // If head is turned or tilted more than 10 degrees, reject it
-      if (rotY == null || rotZ == null || rotY.abs() > 10.0 || rotZ.abs() > 10.0) {
+      //Strict Head Rotation Angles (Blocks side views, ears, tilted heads)
+      final rotY = face.headEulerAngleY; 
+      final rotZ = face.headEulerAngleZ; 
+      final rotX = face.headEulerAngleX; 
+
+      if (rotY == null || rotZ == null || rotY.abs() > 10.0 || rotZ.abs() > 10.0 || (rotX != null && rotX.abs() > 10.0)) {
         throw Exception('INCOMPLETE_FACE'); 
       }
 
+      // Strict Eye Probability Check
+      if (face.leftEyeOpenProbability == null || 
+          face.rightEyeOpenProbability == null || 
+          face.leftEyeOpenProbability! < 0.5 || 
+          face.rightEyeOpenProbability! < 0.5) {
+        throw Exception('INCOMPLETE_FACE');
+      }
+
+      // Extract Required Landmarks
       final leftEye = face.landmarks[FaceLandmarkType.leftEye];
       final rightEye = face.landmarks[FaceLandmarkType.rightEye];
       final noseBase = face.landmarks[FaceLandmarkType.noseBase];
       final mouth = face.landmarks[FaceLandmarkType.bottomMouth];
 
-      // Reject foreheads, ceilings, teacups, and obscured faces instantly
       if (leftEye == null || rightEye == null || noseBase == null || mouth == null) {
         throw Exception('INCOMPLETE_FACE');
       }
 
-      // Enforce minimum eye-spacing distance to block close-up noses or objects
-      final eyeDistance = (leftEye.position.x - rightEye.position.x).abs();
-      if (eyeDistance < 60) {
+      // Top Margin Proportion Check
+      final double avgEyeY = (leftEye.position.y + rightEye.position.y) / 2;
+      final double eyeTopDistance = avgEyeY - box.top;
+
+      if (eyeTopDistance < (box.height * 0.20)) {
         throw Exception('INCOMPLETE_FACE');
       }
+
+      //Bottom Margin Check
+      final double mouthBottomDistance = box.bottom - mouth.position.y;
+      if (mouthBottomDistance < (box.height * 0.10)) {
+        throw Exception('INCOMPLETE_FACE');
+      }
+
+      // Deflated Bounding Box Boundary Check
+      const double padding = 15.0; 
+      final deflatedBox = box.deflate(padding);
+
+      if (!deflatedBox.contains(Offset(leftEye.position.x.toDouble(), leftEye.position.y.toDouble())) ||
+          !deflatedBox.contains(Offset(rightEye.position.x.toDouble(), rightEye.position.y.toDouble())) ||
+          !deflatedBox.contains(Offset(noseBase.position.x.toDouble(), noseBase.position.y.toDouble())) ||
+          !deflatedBox.contains(Offset(mouth.position.x.toDouble(), mouth.position.y.toDouble()))) {
+        throw Exception('INCOMPLETE_FACE');
+      }
+
+      // Proportional Eye Spacing
+      final eyeDistance = (leftEye.position.x - rightEye.position.x).abs();
+      if (eyeDistance < (box.width * 0.22)) {
+        throw Exception('INCOMPLETE_FACE');
+      }
+
     } finally {
       await faceDetector.close();
     }
   }
-Future<void> enroll(String imagePath) async {
+
+  Future<void> enroll(String imagePath) async {
     try {
       print('🔒 [FaceLock] Starting strict ML Kit validation...');
       await _validateFullFacePresent(imagePath);
@@ -105,12 +145,10 @@ Future<void> enroll(String imagePath) async {
       rethrow;
     }
   }
+
   Future<bool> matches(String imagePath) async {
-    // MUST pass ML Kit face check before verification plugin is executed
     await _validateFullFacePresent(imagePath);
 
-
-    // Perform embedding match
     final matchId = await FaceVerification.instance.verifyFromImagePath(
       imagePath: imagePath,
       threshold: matchThreshold,
