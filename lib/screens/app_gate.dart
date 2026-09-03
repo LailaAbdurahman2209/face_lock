@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../face_lock.dart';
+import 'clock_in_screen.dart'; // Add import for ClockInScreen
 import 'face_capture_page.dart';
 import 'registration_form_screen.dart';
 import 'thank_you_screen.dart';
@@ -103,6 +104,8 @@ class _AppGateState extends State<AppGate> {
         employeePin: _employeePin,
         siteId: _siteId,
         customerId: _customerId, // <--- Passed down for local saving
+        latitude: 0.0,  // Enrollment doesn't require GPS
+        longitude: 0.0, // Enrollment doesn't require GPS
         onSuccess: () => setState(() => _phase = AppPhase.thankYou),
       ),
       AppPhase.thankYou => ThankYouScreen(
@@ -111,15 +114,7 @@ class _AppGateState extends State<AppGate> {
           _phase = AppPhase.welcome;
         }),
       ),
-      AppPhase.verify => FaceCapturePage(
-        mode: FaceCaptureMode.unlock,
-        employeeName: _employeeName,
-        employeeId: _employeeId,
-        employeePin: _employeePin,
-        siteId: _siteId,
-        customerId: _customerId,
-        onSuccess: () => setState(() => _phase = AppPhase.unlocked),
-      ),
+      AppPhase.verify =>  ClockInScreen(), // Updated to route through site selection and GPS capture first
       AppPhase.unlocked => UnlockedPage(
         onLock: () => setState(() => _phase = AppPhase.welcome),
         onReset: () async {

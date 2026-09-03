@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async'; 
 import 'package:permission_handler/permission_handler.dart';
 
 import '../face_lock.dart';
@@ -23,6 +24,8 @@ class FaceCapturePage extends StatefulWidget {
     required this.employeeId,
     required this.siteId,
     required this.customerId,
+    required this.latitude,
+    required this.longitude,
   });
 
   final FaceCaptureMode mode;
@@ -32,6 +35,8 @@ class FaceCapturePage extends StatefulWidget {
   final String employeeId;
   final String siteId;
   final String customerId;
+  final double latitude;
+  final double longitude;
 
   @override
   State<FaceCapturePage> createState() => _FaceCapturePageState();
@@ -43,6 +48,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
   String? _error;
   bool _busy = false;
   bool _starting = true;
+  bool _isOpening = false; // Prevents race conditions during permission prompts
 
   bool get _enrolling => widget.mode == FaceCaptureMode.enroll;
 
@@ -55,48 +61,73 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive) {
-      _controller?.dispose();
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      final oldController = _controller;
       _controller = null;
+      oldController?.dispose();
     } else if (state == AppLifecycleState.resumed) {
-      _openCamera();
+      if (_controller == null && !_isOpening) {
+        _openCamera();
+      }
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    final oldController = _controller;
+    _controller = null;
+    oldController?.dispose();
     super.dispose();
   }
 
   Future<void> _openCamera() async {
+    if (_isOpening || !mounted) return;
+    _isOpening = true;
+
     setState(() {
       _starting = true;
       _error = null;
     });
 
-    final status = await Permission.camera.request();
-    if (!mounted) return;
-
-    if (!status.isGranted) {
-      setState(() {
-        _starting = false;
-        _error = 'Camera permission required.';
-      });
-      return;
-    }
-
     try {
+      var status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+      if (!mounted) return;
+
+      if (!status.isGranted) {
+        setState(() {
+          _starting = false;
+          _error = 'Camera permission required.';
+        });
+        return;
+      }
+
       final cameras = await availableCameras();
       if (!mounted) return;
+
+      if (cameras.isEmpty) {
+        setState(() {
+          _starting = false;
+          _error = 'No cameras available on this device.';
+        });
+        return;
+      }
 
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
-      await _controller?.dispose();
+      // Safely dispose old controller if any
+      final oldController = _controller;
+      _controller = null;
+      await oldController?.dispose();
+
+      if (!mounted) return;
+
       final controller = CameraController(
         front,
         ResolutionPreset.high,
@@ -109,8 +140,12 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) {
         await controller.dispose();
+        if (_controller == controller) {
+          _controller = null;
+        }
         return;
       }
+      
       setState(() => _starting = false);
     } catch (e) {
       if (!mounted) return;
@@ -118,6 +153,8 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         _starting = false;
         _error = 'Camera error: $e';
       });
+    } finally {
+      _isOpening = false;
     }
   }
 
@@ -134,10 +171,13 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       final photo = await controller.takePicture();
       
       for (int i = 0; i < 10; i++) {
+        if (!mounted) return;
         final file = File(photo.path);
         if (await file.exists() && await file.length() > 0) break;
         await Future.delayed(const Duration(milliseconds: 100));
       }
+
+      if (!mounted) return;
 
       if (_enrolling) {
         print('REGISTERING USER: Name: ${widget.employeeName}, ID: ${widget.employeeId}, PIN: ${widget.employeePin}, Customer ID: ${widget.customerId}');
@@ -191,25 +231,80 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return; 
       }
 
-      final requestBody = {'name': name.trim(), 'id_number': idNumber.trim(), 'pin': pin.trim()};
+      final requestBody = {
+        'name': name.trim(), 
+        'id_number': idNumber.trim(), 
+        'pin': pin.trim(),
+        'site_id': widget.siteId,
+        'latitude': widget.latitude,
+        'longitude': widget.longitude,
+      };
+
+      print('CLOCK-IN REQUEST URL: ${AppUrls.checkAttendPinMobile}');
+      print('CLOCK-IN REQUEST PAYLOAD: $requestBody');
       
       final response = await http.post(
         Uri.parse(AppUrls.checkAttendPinMobile),
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(requestBody),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Request timed out. Please check your internet connection.');
+        },
       );
 
-      final responseData = jsonDecode(response.body);
+      print('CLOCK-IN RESPONSE STATUS: ${response.statusCode}');
+      print('CLOCK-IN RESPONSE BODY: ${response.body}');
+
       if (context.mounted) Navigator.pop(context);
 
-      if (response.statusCode == 200 && responseData['status'] == 'success') {
-        if (context.mounted) _showResultDialog(context, true, responseData['message'] ?? 'Clocked in.');
-      } else {
-        if (context.mounted) _showResultDialog(context, false, responseData['message'] ?? 'Failed.');
+      if (response.statusCode != 200) {
+        if (response.statusCode >= 500) {
+          throw Exception('Server error (${response.statusCode}). Please try again later.');
+        } else if (response.statusCode == 404) {
+          throw Exception('Endpoint not found (${response.statusCode}).');
+        } else {
+          throw Exception('Server returned status code ${response.statusCode}');
+        }
       }
-    } catch (e) {
+
+      if (response.body.isEmpty) {
+        throw Exception('Empty response received from server.');
+      }
+
+      final dynamic decodedBody = jsonDecode(response.body);
+
+      if (decodedBody is! Map<String, dynamic>) {
+        throw Exception('Unexpected data format received from server.');
+      }
+
+      final String status = decodedBody['status']?.toString().toLowerCase() ?? '';
+      final String message = decodedBody['message']?.toString() ?? 'Clock-in completed.';
+
+      if (status == 'success' || status == 'true' || status == '1') {
+        if (context.mounted) _showResultDialog(context, true, message);
+      } else {
+        if (context.mounted) _showResultDialog(context, false, message.isNotEmpty ? message : 'Clock-in failed.');
+      }
+
+    } on SocketException catch (e) {
+      print('CLOCK-IN ERROR (SocketException): $e');
       if (context.mounted) Navigator.pop(context);
-      setState(() => _error = 'Network error: $e');
+      setState(() => _error = 'No Internet connection. Please turn on mobile data or Wi-Fi.');
+    } on TimeoutException catch (e) {
+      print('CLOCK-IN ERROR (TimeoutException): $e');
+      if (context.mounted) Navigator.pop(context);
+      setState(() => _error = 'Connection timed out. Weak internet connection.');
+    } on http.ClientException catch (e) {
+      print('CLOCK-IN ERROR (ClientException): $e');
+      if (context.mounted) Navigator.pop(context);
+      setState(() => _error = 'Network error: Unable to reach server.');
+    } catch (e) {
+      print('CLOCK-IN ERROR: $e');
+      if (context.mounted) Navigator.pop(context);
+      final cleanMessage = e.toString().replaceAll('Exception: ', '');
+      setState(() => _error = cleanMessage);
     }
   }
 

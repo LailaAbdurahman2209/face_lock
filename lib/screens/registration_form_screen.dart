@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io'; // Required for SocketException
+import 'dart:async'; // Required for TimeoutException
+
 //import 'package:permission_handler/permission_handler.dart';
 import '../utils/app_urls.dart';
 
@@ -53,6 +56,8 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
 
     try {
       final uri = Uri.parse(AppUrls.checkAttendPinMobile);
+      
+      // Wrapped request in a 10-second timeout
       final response = await http.post(
         uri,
         headers: {
@@ -64,7 +69,14 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
           'id_number': _idNumberController.text.trim(),
           'pin': _pinController.text.trim(),
         }),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Request timed out. Please check your internet connection.');
+        },
       );
+
+      if (!mounted) return;
 
       final Map<String, dynamic> responseData = jsonDecode(response.body);
 
@@ -87,13 +99,30 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
         }
       } else {
         setState(() {
-          _apiError = responseData['message'] ?? 'Connection problem';
+          _apiError = responseData['message'] ?? 'Server error (${response.statusCode})';
         });
       }
+    } on SocketException catch (e) {
+      print('REGISTRATION ERROR (SocketException): $e');
+      if (mounted) {
+        setState(() => _apiError = 'No Internet connection. Please turn on mobile data or Wi-Fi.');
+      }
+    } on TimeoutException catch (e) {
+      print('REGISTRATION ERROR (TimeoutException): $e');
+      if (mounted) {
+        setState(() => _apiError = 'Connection timed out. Weak internet connection.');
+      }
+    } on http.ClientException catch (e) {
+      print('REGISTRATION ERROR (ClientException): $e');
+      if (mounted) {
+        setState(() => _apiError = 'Network error: Unable to reach server.');
+      }
     } catch (e) {
-      setState(() {
-        _apiError = 'Network error: ${e.toString()}';
-      });
+      print('REGISTRATION ERROR: $e');
+      if (mounted) {
+        final cleanMessage = e.toString().replaceAll('Exception: ', '');
+        setState(() => _apiError = cleanMessage);
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
