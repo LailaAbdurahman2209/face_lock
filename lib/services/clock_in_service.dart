@@ -72,17 +72,26 @@ class ClockInService {
     bool serviceEnabled;
     LocationPermission permission;
 
+    // Check if GPS / Location services are turned on
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return null; 
+    if (!serviceEnabled) {
+      throw Exception('Location services are turned off. Please turn on GPS in your phone settings.');
+    } 
 
+    // Check location permissions
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return null; 
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission is required to clock in. Please grant permission when prompted.');
+      } 
     }
     
-    if (permission == LocationPermission.deniedForever) return null; 
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('Location permission is permanently denied. Please enable it in your phone\'s App Settings.');
+    } 
 
+    // Fetch location if permissions and services are active
     return await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high
     );

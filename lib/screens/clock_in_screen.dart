@@ -22,11 +22,12 @@ class _ClockInScreenState extends State<ClockInScreen> {
   Position? _currentLocation;
   List<WorkSite> _sites = [];
   int? _selectedSiteId;
-  String? _siteError; // Tracks empty sites or site loading messages
+  String? _siteError;
 
   @override
   void initState() {
     super.initState();
+    // Checks location and validates instantly when the screen opens (before user clicks anything)
     _startValidationProcess();
   }
 
@@ -37,6 +38,25 @@ class _ClockInScreenState extends State<ClockInScreen> {
     });
 
     try {
+      // 1. CHECK LOCATION FIRST (Before hitting server API)
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location services are turned off. Please turn on GPS in your phone settings.');
+      } 
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permission is required to clock in. Please grant permission when prompted.');
+        } 
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission is permanently denied. Please enable it in your phone\'s App Settings.');
+      }
+
+      // 2. Proceed with API validation & fetching sites
       final prefs = await SharedPreferences.getInstance();
       final dynamicRawId = prefs.get('system_id') ?? prefs.get('customer_id');
       final int customerId = dynamicRawId is int 
@@ -51,10 +71,11 @@ class _ClockInScreenState extends State<ClockInScreen> {
       print('DEBUG - Validation API result for user active status: $isActive');
 
       if (isActive) {
-        _currentLocation = await ClockInService.getDeviceLocation();
+        _currentLocation = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
         _sites = await ClockInService.fetchSites();
         
-        // Explicit Empty Sites Safeguard
         if (_sites.isEmpty) {
           _siteError = "No active work sites assigned to your profile. Please contact your supervisor.";
         }
@@ -76,7 +97,8 @@ class _ClockInScreenState extends State<ClockInScreen> {
       _showErrorDialog("No Internet connection. Please turn on mobile data or Wi-Fi.");
     } catch (e) {
       print('DEBUG - Error during validation process: $e');
-      _showErrorDialog("An error occurred during validation.");
+      final cleanMessage = e.toString().replaceAll('Exception: ', '');
+      _showErrorDialog(cleanMessage);
     } finally {
       setState(() => _isLoading = false);
     }
@@ -116,7 +138,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Text(
-                  "Validation failed. Check your connection.", 
+                  "Validation failed. Check your connection or location settings.", 
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 16),
                 ),
@@ -167,7 +189,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
                   ),
                   const SizedBox(height: 12),
                   
-                  // Display warning banner if no sites are returned
                   if (_sites.isEmpty || _siteError != null) ...[
                     Container(
                       width: double.infinity,
@@ -213,7 +234,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
                       ),
                     ),
                   ] else ...[
-                    // Display Dropdown when sites are available
                     DropdownButtonFormField<int>(
                       dropdownColor: const Color(0xFF0A221F),
                       style: const TextStyle(color: Colors.white, fontSize: 15),
