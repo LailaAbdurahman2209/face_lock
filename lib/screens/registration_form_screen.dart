@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../utils/app_urls.dart';
 
+/// Screen for entering employee details and checking location/GPS.
 class RegistrationFormScreen extends StatefulWidget {
   const RegistrationFormScreen({
     super.key,
@@ -25,6 +26,7 @@ class RegistrationFormScreen extends StatefulWidget {
 class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
   final _formKey = GlobalKey<FormState>();
   
+  // Input controllers
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _idNumberController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
@@ -33,6 +35,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
   bool _obscurePin = true; 
   String? _apiError;
 
+  // Theme colors
   final Color brandCyan = const Color(0xFF00D4FF);
   final Color bgDarkBlue = const Color(0xFF020B1A);
   final Color bgLightBlue = const Color(0xFF051B38);
@@ -40,6 +43,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
   @override
   void initState() {
     super.initState();
+    // Check GPS right after screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkLocationOnStartup();
     });
@@ -47,12 +51,14 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
 
   @override
   void dispose() {
+    // Dispose controllers to free memory
     _nameController.dispose();
     _idNumberController.dispose();
     _pinController.dispose();
     super.dispose();
   }
 
+  // Check if GPS service and location permissions are enabled
   Future<void> _checkLocationOnStartup() async {
     if (!mounted) return;
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -80,6 +86,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
     }
   }
 
+  // Show popup alert if location is disabled
   void _showLocationPopup(String message) {
     if (!mounted) return;
     showDialog(
@@ -98,6 +105,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
     );
   }
 
+  // Validate form inputs, check location, and send API verification request
   Future<void> _validateAndProceed() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -126,6 +134,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
 
       final uri = Uri.parse(AppUrls.checkAttendPinMobile);
       
+      // Post credentials to backend
       final response = await http.post(
         uri,
         headers: {
@@ -167,11 +176,11 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
           _apiError = responseData['message'] ?? 'Server error (${response.statusCode})';
         });
       }
-    } on SocketException catch (e) {
+    } on SocketException {
       if (mounted) setState(() => _apiError = 'No Internet connection. Please turn on mobile data or Wi-Fi.');
-    } on TimeoutException catch (e) {
+    } on TimeoutException {
       if (mounted) setState(() => _apiError = 'Connection timed out. Weak internet connection.');
-    } on http.ClientException catch (e) {
+    } on http.ClientException {
       if (mounted) setState(() => _apiError = 'Network error: Unable to reach server.');
     } catch (e) {
       if (mounted) {
@@ -185,6 +194,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
     }
   }
 
+  // Helper for input field styles
   InputDecoration _customInputDecoration(String label, IconData icon, {Widget? suffixIcon}) {
     return InputDecoration(
       labelText: label,
@@ -195,7 +205,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
       fillColor: const Color(0xFF061833),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: brandCyan.withOpacity(0.3)),
+        borderSide: BorderSide(color: brandCyan.withAlpha(77)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -233,6 +243,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Back button
                   IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
                     onPressed: widget.onBackPressed,
@@ -254,11 +265,12 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 30),
 
+                  // Error banner
                   if (_apiError != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.redAccent.withOpacity(0.2),
+                        color: Colors.redAccent.withAlpha(51),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.redAccent),
                       ),
@@ -271,6 +283,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                     const SizedBox(height: 20),
                   ],
 
+                  // Name field
                   TextFormField(
                     controller: _nameController,
                     style: const TextStyle(color: Colors.white),
@@ -283,6 +296,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 20),
 
+                  // ID Number field (13 digits)
                   TextFormField(
                     controller: _idNumberController,
                     style: const TextStyle(color: Colors.white),
@@ -298,6 +312,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 20),
 
+                  // PIN field with toggle visibility
                   TextFormField(
                     controller: _pinController,
                     style: const TextStyle(color: Colors.white),
@@ -326,6 +341,7 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 40),
 
+                  // Submit button
                   SizedBox(
                     width: double.infinity,
                     height: 56,

@@ -1,19 +1,22 @@
-//import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:camera/camera.dart';
+import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:io';
-import 'dart:async'; 
+import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:http/http.dart' as http;
 
 import '../face_lock.dart';
 import '../utils/app_urls.dart';
 import '../utils/user_storage.dart';
 
+/// Defines the operational mode for face capture:
 enum FaceCaptureMode { enroll, unlock }
 
+/// A screen responsible for initializing the device camera,
+/// either user biometric enrollment or clock-in authentication via backend API.
 class FaceCapturePage extends StatefulWidget {
   const FaceCapturePage({
     super.key,
@@ -50,17 +53,20 @@ class _FaceCapturePageState extends State<FaceCapturePage>
   bool _starting = true;
   bool _isOpening = false; // Prevents race conditions during permission prompts
 
+  // Helper to check if the current mode is enrollment
   bool get _enrolling => widget.mode == FaceCaptureMode.enroll;
 
   @override
   void initState() {
     super.initState();
+    
     WidgetsBinding.instance.addObserver(this);
     _openCamera();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Safely dispose or restart the camera stream 
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       final oldController = _controller;
       _controller = null;
@@ -74,6 +80,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
   @override
   void dispose() {
+    // Unregister observer and dispose camera controller to prevent memory leaks
     WidgetsBinding.instance.removeObserver(this);
     final oldController = _controller;
     _controller = null;
@@ -81,6 +88,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     super.dispose();
   }
 
+  /// Requests hardware camera permissions and initializes the front-facing camera.
   Future<void> _openCamera() async {
     if (_isOpening || !mounted) return;
     _isOpening = true;
@@ -91,6 +99,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     });
 
     try {
+      // Check and request camera permission using permission_handler
       var status = await Permission.camera.status;
       if (!status.isGranted) {
         status = await Permission.camera.request();
@@ -105,6 +114,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return;
       }
 
+      // get list of available device cameras
       final cameras = await availableCameras();
       if (!mounted) return;
 
@@ -116,6 +126,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return;
       }
 
+      // Select the front-facing camera for facial scanning
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
@@ -128,6 +139,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) return;
 
+      // Initialize the camera controller with high resolution 
       final controller = CameraController(
         front,
         ResolutionPreset.high,
@@ -158,6 +170,8 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
+  /// Captures an image frame from the active camera preview and processes it
+  /// with ML Kit to verify eyes, nose, and mouth are visible before proceeding.
   Future<void> _capture() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized || _busy) return;
@@ -168,8 +182,10 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     });
 
     try {
+      // Take a picture file from the camera controller
       final photo = await controller.takePicture();
       
+      // Verify that the file exists and has data before processing
       for (int i = 0; i < 10; i++) {
         if (!mounted) return;
         final file = File(photo.path);
@@ -179,7 +195,41 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) return;
 
+      // Process image with ML Kit to validate facial landmarks (eyes, nose, mouth)
+      final inputImage = InputImage.fromFilePath(photo.path);
+      final options = FaceDetectorOptions(
+        performanceMode: FaceDetectorMode.accurate,
+        enableLandmarks: true,
+      );
+      final faceDetector = FaceDetector(options: options);
+      
+      final faces = await faceDetector.processImage(inputImage);
+      await faceDetector.close();
+
+      if (faces.isEmpty) {
+        throw Exception('No face detected. Please look straight into the camera.');
+      }
+
+      if (faces.length > 1) {
+        throw Exception('Multiple faces detected. Only one person allowed.');
+      }
+
+      final face = faces.first;
+
+      // Enforce check that eyes, nose, and mouth landmarks are fully visible (prevents half-face cuts)
+      final leftEye = face.landmarks[FaceLandmarkType.leftEye];
+      final rightEye = face.landmarks[FaceLandmarkType.rightEye];
+      final nose = face.landmarks[FaceLandmarkType.noseBase];
+      final mouth = face.landmarks[FaceLandmarkType.bottomMouth];
+
+      if (leftEye == null || rightEye == null || nose == null || mouth == null) {
+        throw Exception('Incomplete face detected. Ensure your eyes, nose, and mouth are fully inside the frame.');
+      }
+
+      if (!mounted) return;
+
       if (_enrolling) {
+        // Mode: Enrollment register face locally and save user credentials 
         print('REGISTERING USER: Name: ${widget.employeeName}, ID: ${widget.employeeId}, PIN: ${widget.employeePin}, Customer ID: ${widget.customerId}');
         await FaceLock.instance.enroll(photo.path);
         await UserStorage.saveUserData(
@@ -190,6 +240,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
           siteId: widget.siteId,
         );
       } else {
+        // Mode: Unlock/Verification match captured face against enrolled template
         final matched = await FaceLock.instance.matches(photo.path);
         if (!matched) throw Exception('face not recognized');
       }
@@ -199,6 +250,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       if (_enrolling) {
         widget.onSuccess();
       } else {
+        // Proceed to execute backend clock-in verification API call upon successful match
         await executeClockInApiCall(context);
       }
 
@@ -212,7 +264,9 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
+  /// Executes the backend API call to record the employee clock-in with location and credentials.
   Future<void> executeClockInApiCall(BuildContext context) async {
+    // Show loading indicator dialog during network request
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -220,6 +274,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     );
 
     try {
+      // get stored user profile information as fallback
       final savedData = await UserStorage.getUserData();
       final String name = savedData['name'] ?? widget.employeeName;
       final String pin = savedData['pin'] ?? widget.employeePin;
@@ -231,6 +286,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return; 
       }
 
+      // Construct payload for attendance verification
       final requestBody = {
         'name': name.trim(), 
         'id_number': idNumber.trim(), 
@@ -243,6 +299,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       print('CLOCK-IN REQUEST URL: ${AppUrls.checkAttendPinMobile}');
       print('CLOCK-IN REQUEST PAYLOAD: $requestBody');
       
+      // Perform POST request with a 10-second timeout safeguard
       final response = await http.post(
         Uri.parse(AppUrls.checkAttendPinMobile),
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
@@ -259,6 +316,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (context.mounted) Navigator.pop(context);
 
+      // Validate HTTP response status codes
       if (response.statusCode != 200) {
         if (response.statusCode >= 500) {
           throw Exception('Server error (${response.statusCode}). Please try again later.');
@@ -282,6 +340,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       final String status = decodedBody['status']?.toString().toLowerCase() ?? '';
       final String message = decodedBody['message']?.toString() ?? 'Clock-in completed.';
 
+      // Handle server status outcome
       if (status == 'success' || status == 'true' || status == '1') {
         if (context.mounted) _showResultDialog(context, true, message);
       } else {
@@ -308,6 +367,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
+  /// Displays a popup dialog showing the final success or failure result of the clock-in process.
   void _showResultDialog(BuildContext context, bool isSuccess, String messageText) {
     showDialog(
       context: context,
@@ -349,6 +409,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Live camera preview when initialized, otherwise show background placeholder
           if (ready)
             FittedBox(
               fit: BoxFit.cover,
@@ -361,6 +422,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
           else
             const ColoredBox(color: Color(0xFF04110F)),
 
+          // Overlay guiding oval shape for facial alignment
           IgnorePointer(
             child: CustomPaint(
               painter: _OvalGuidePainter(),
@@ -368,6 +430,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
             ),
           ),
 
+          // User interface controls overlaid on top of camera stream
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
@@ -381,9 +444,10 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                     ),
                   ),
                   const Spacer(),
+                  // Display error banner if any error state occurs
                   if (_error != null)
                     Material(
-                      color: Colors.red[900]?.withOpacity(0.9),
+                      color: Colors.red[900]?.withAlpha(230),
                       borderRadius: BorderRadius.circular(16),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -413,6 +477,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
   }
 }
 
+/// Custom painter to draw an oval guide mask over the camera preview for facial positioning.
 class _OvalGuidePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {

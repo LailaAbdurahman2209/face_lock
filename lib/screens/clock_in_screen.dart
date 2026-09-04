@@ -8,6 +8,7 @@ import 'face_capture_page.dart';
 import '../models/work_site.dart';
 import '../services/clock_in_service.dart';
 
+/// Screen for validating user status and location, then selecting a work site.
 class ClockInScreen extends StatefulWidget {
   const ClockInScreen({super.key});
 
@@ -27,10 +28,11 @@ class _ClockInScreenState extends State<ClockInScreen> {
   @override
   void initState() {
     super.initState();
-    // Checks location and validates instantly when the screen opens (before user clicks anything)
+    // Validate location and user data instantly when the screen opens
     _startValidationProcess();
   }
 
+  // Check location, verify user credentials, and fetch work sites
   Future<void> _startValidationProcess() async {
     setState(() {
       _isLoading = true;
@@ -38,12 +40,13 @@ class _ClockInScreenState extends State<ClockInScreen> {
     });
 
     try {
-      // 1. CHECK LOCATION FIRST (Before hitting server API)
+      // Check if location services and GPS are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         throw Exception('Location services are turned off. Please turn on GPS in your phone settings.');
       } 
 
+      // Check and request location permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -56,7 +59,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
         throw Exception('Location permission is permanently denied. Please enable it in your phone\'s App Settings.');
       }
 
-      // 2. Proceed with API validation & fetching sites
+      // Load stored user ID and PIN from shared preferences
       final prefs = await SharedPreferences.getInstance();
       final dynamicRawId = prefs.get('system_id') ?? prefs.get('customer_id');
       final int customerId = dynamicRawId is int 
@@ -67,10 +70,12 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
       print('DEBUG - Resolved customerId: $customerId, pin: $pin');
 
+      // Verify if user is active via API
       bool isActive = await ClockInService.validateUser(customerId, pin);
       print('DEBUG - Validation API result for user active status: $isActive');
 
       if (isActive) {
+        // Get high-accuracy GPS coordinates and fetch assigned work sites
         _currentLocation = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
         );
@@ -104,6 +109,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
     }
   }
 
+  // Show error popup dialog
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
@@ -149,6 +155,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Location status indicator card
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -189,6 +196,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                   ),
                   const SizedBox(height: 12),
                   
+                  // Show site error warning box or site selection dropdown
                   if (_sites.isEmpty || _siteError != null) ...[
                     Container(
                       width: double.infinity,
@@ -272,6 +280,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                   
                   const SizedBox(height: 40),
                   
+                  // Proceed to Face Scan button
                   SizedBox(
                     width: double.infinity,
                     height: 56,
@@ -286,6 +295,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                         print("Proceeding with Site ID: $_selectedSiteId");
                         print("Coordinates: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}");
                         
+                        // Navigate to Face Capture screen for clock-in verification
                         Navigator.push(
                           context,
                           MaterialPageRoute(
