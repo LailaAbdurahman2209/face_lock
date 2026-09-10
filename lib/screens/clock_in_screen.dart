@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,10 +20,12 @@ class ClockInScreen extends StatefulWidget {
 class _ClockInScreenState extends State<ClockInScreen> {
   bool _isLoading = false;
   bool _isValidated = false;
+  bool _isVerifyingSite = false; // Loading state for site validation call
   
   Position? _currentLocation;
   List<WorkSite> _sites = [];
   int? _selectedSiteId;
+  int? _customerId; // Saved customerId for the API payload
   String? _siteError;
 
   @override
@@ -86,6 +89,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
         }
 
         setState(() {
+          _customerId = customerId; // Store customerId in state
           _isValidated = true;
         });
       } else {
@@ -106,6 +110,84 @@ class _ClockInScreenState extends State<ClockInScreen> {
       _showErrorDialog(cleanMessage);
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  // Validate site radius with server before opening face scan
+  Future<void> _handleProceedToFaceScan() async {
+    if (_selectedSiteId == null || _currentLocation == null || _customerId == null) return;
+
+    setState(() => _isVerifyingSite = true);
+
+    try {
+      final url = Uri.parse('https://s2.onguard.co.za/api/attendance/validateTnaLocation');
+      
+      final payload = {
+        "lat": _currentLocation!.latitude,
+        "lng": _currentLocation!.longitude,
+        "customer_id": _customerId,
+        "site_id": _selectedSiteId,
+      };
+
+      print('DEBUG - Sending Site Validation Payload: ${jsonEncode(payload)}');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15));
+
+      print('DEBUG - Site Validation Response Status Code: ${response.statusCode}');
+      print('DEBUG - Site Validation Response Body: ${response.body}');
+
+      // Strict Rule: If HTTP status code is NOT 200, block proceeding
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception("You are not near the site you selected to work at. Please go to the site you select and try again");
+      }
+
+      final data = jsonDecode(response.body);
+
+      // Verify success status
+      if (data['status'] == 'success') {
+        if (!mounted) return;
+        
+        // Site radius verified! Proceed to Face Capture screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => FaceCapturePage(
+              mode: FaceCaptureMode.unlock,
+              onSuccess: () {},
+              employeeName: '',
+              employeePin: '',
+              employeeId: '',
+              customerId: _customerId.toString(),
+              siteId: _selectedSiteId.toString(),
+              latitude: _currentLocation?.latitude ?? 0.0,
+              longitude: _currentLocation?.longitude ?? 0.0,
+            ),
+          ),
+        );
+      } else {
+        throw Exception("You are not in the right site, please move to the correct site and try again.");
+      }
+
+    } on TimeoutException {
+      _showErrorDialog("Location verification timed out. Please try again.");
+    } on SocketException {
+      _showErrorDialog("No Internet connection. Please turn on mobile data or Wi-Fi.");
+    } on http.ClientException {
+      _showErrorDialog("Network error occurred. Please check your internet connection.");
+    } catch (e) {
+      final cleanMessage = e.toString().replaceAll('Exception: ', '');
+      _showErrorDialog(cleanMessage);
+    } finally {
+      if (mounted) {
+        setState(() => _isVerifyingSite = false);
+      }
     }
   }
 
@@ -291,32 +373,19 @@ class _ClockInScreenState extends State<ClockInScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         elevation: 0,
                       ),
-                      onPressed: (_selectedSiteId == null || _sites.isEmpty) ? null : () {
-                        print("Proceeding with Site ID: $_selectedSiteId");
-                        print("Coordinates: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}");
-                        
-                        // Navigate to Face Capture screen for clock-in verification
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => FaceCapturePage(
-                              mode: FaceCaptureMode.unlock,
-                              onSuccess: () {},
-                              employeeName: '',
-                              employeePin: '',
-                              employeeId: '',
-                              customerId: '',
-                              siteId: _selectedSiteId.toString(),
-                              latitude: _currentLocation?.latitude ?? 0.0,
-                              longitude: _currentLocation?.longitude ?? 0.0,
-                            ),
+                      onPressed: (_selectedSiteId == null || _sites.isEmpty || _isVerifyingSite) 
+                          ? null 
+                          : _handleProceedToFaceScan,
+                      child: _isVerifyingSite
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                          )
+                        : const Text(
+                            "Proceed to Face Scan", 
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
                           ),
-                        );
-                      },
-                      child: const Text(
-                        "Proceed to Face Scan", 
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
-                      ),
                     ),
                   ),
                 ],

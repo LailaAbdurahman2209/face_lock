@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({
     super.key,
-    required this.isEnrolled, // Added parameter to check status
+    required this.isEnrolled,
     required this.onRegisterPressed,
     required this.onSignInPressed,
   });
@@ -14,7 +15,6 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Colors matching the design
     const Color brandCyan = Color(0xFF00D4FF);
     const Color buttonBlue = Color(0xFF007AFF);
     const Color bgDarkBlue = Color(0xFF020B1A);
@@ -37,12 +37,13 @@ class WelcomeScreen extends StatelessWidget {
               children: [
                 const Spacer(flex: 3),
 
-                // Glowing Center Icon Box
+                // Center Icon Box with SVG Logo (Native Colors, No Filter)
                 Container(
                   width: 140,
                   height: 140,
+                  padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF061833), // Darker inner box
+                    color: const Color(0xFF061833),
                     borderRadius: BorderRadius.circular(28),
                     border: Border.all(
                       color: brandCyan.withOpacity(0.3),
@@ -56,12 +57,9 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.face_retouching_natural,
-                      size: 80,
-                      color: brandCyan,
-                    ),
+                  child: SvgPicture.asset(
+                    'assets/logo.svg',
+                    fit: BoxFit.contain,
                   ),
                 ),
                 
@@ -117,7 +115,6 @@ class WelcomeScreen extends StatelessWidget {
                 // Action Buttons
                 Column(
                   children: [
-                    // Shows ONLY Register if not enrolled, ONLY Sign In if enrolled
                     if (!isEnrolled)
                       SizedBox(
                         width: double.infinity,

@@ -7,6 +7,7 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../face_lock.dart';
 import '../utils/app_urls.dart';
@@ -59,14 +60,12 @@ class _FaceCapturePageState extends State<FaceCapturePage>
   @override
   void initState() {
     super.initState();
-    
     WidgetsBinding.instance.addObserver(this);
     _openCamera();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Safely dispose or restart the camera stream 
     if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       final oldController = _controller;
       _controller = null;
@@ -80,7 +79,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
   @override
   void dispose() {
-    // Unregister observer and dispose camera controller to prevent memory leaks
     WidgetsBinding.instance.removeObserver(this);
     final oldController = _controller;
     _controller = null;
@@ -99,7 +97,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     });
 
     try {
-      // Check and request camera permission using permission_handler
       var status = await Permission.camera.status;
       if (!status.isGranted) {
         status = await Permission.camera.request();
@@ -114,7 +111,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return;
       }
 
-      // get list of available device cameras
       final cameras = await availableCameras();
       if (!mounted) return;
 
@@ -126,20 +122,17 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return;
       }
 
-      // Select the front-facing camera for facial scanning
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
-      // Safely dispose old controller if any
       final oldController = _controller;
       _controller = null;
       await oldController?.dispose();
 
       if (!mounted) return;
 
-      // Initialize the camera controller with high resolution 
       final controller = CameraController(
         front,
         ResolutionPreset.high,
@@ -182,10 +175,8 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     });
 
     try {
-      // Take a picture file from the camera controller
       final photo = await controller.takePicture();
       
-      // Verify that the file exists and has data before processing
       for (int i = 0; i < 10; i++) {
         if (!mounted) return;
         final file = File(photo.path);
@@ -195,7 +186,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) return;
 
-      // Process image with ML Kit to validate facial landmarks (eyes, nose, mouth)
       final inputImage = InputImage.fromFilePath(photo.path);
       final options = FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
@@ -216,7 +206,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       final face = faces.first;
 
-      // Enforce check that eyes, nose, and mouth landmarks are fully visible (prevents half-face cuts)
       final leftEye = face.landmarks[FaceLandmarkType.leftEye];
       final rightEye = face.landmarks[FaceLandmarkType.rightEye];
       final nose = face.landmarks[FaceLandmarkType.noseBase];
@@ -229,7 +218,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       if (!mounted) return;
 
       if (_enrolling) {
-        // Mode: Enrollment register face locally and save user credentials 
         print('REGISTERING USER: Name: ${widget.employeeName}, ID: ${widget.employeeId}, PIN: ${widget.employeePin}, Customer ID: ${widget.customerId}');
         await FaceLock.instance.enroll(photo.path);
         await UserStorage.saveUserData(
@@ -240,7 +228,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
           siteId: widget.siteId,
         );
       } else {
-        // Mode: Unlock/Verification match captured face against enrolled template
         final matched = await FaceLock.instance.matches(photo.path);
         if (!matched) throw Exception('face not recognized');
       }
@@ -250,7 +237,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       if (_enrolling) {
         widget.onSuccess();
       } else {
-        // Proceed to execute backend clock-in verification API call upon successful match
         await executeClockInApiCall(context);
       }
 
@@ -264,9 +250,8 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
-  /// Executes the backend API call to record the employee clock-in with location and credentials.
+  /// Executes backend API calls and enforces site-matching rules for clock-in vs clock-out.
   Future<void> executeClockInApiCall(BuildContext context) async {
-    // Show loading indicator dialog during network request
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -274,7 +259,17 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     );
 
     try {
-      // get stored user profile information as fallback
+      final prefs = await SharedPreferences.getInstance();
+      bool isClockedIn = prefs.getBool('is_clocked_in') ?? false;
+      String? clockedInSiteId = prefs.getString('clocked_in_site_id');
+
+      // RULE: If user is already clocked in, they MUST clock out at the exact same site
+      if (isClockedIn && clockedInSiteId != null && clockedInSiteId != widget.siteId) {
+        if (context.mounted) Navigator.pop(context);
+        setState(() => _error = 'Please clock out at the site you clocked in at.');
+        return;
+      }
+
       final savedData = await UserStorage.getUserData();
       final String name = savedData['name'] ?? widget.employeeName;
       final String pin = savedData['pin'] ?? widget.employeePin;
@@ -286,7 +281,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return; 
       }
 
-      // Construct payload for attendance verification
+      // 1. Attendance verification API call (checkAttendPinMobile)
       final requestBody = {
         'name': name.trim(), 
         'id_number': idNumber.trim(), 
@@ -299,7 +294,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       print('CLOCK-IN REQUEST URL: ${AppUrls.checkAttendPinMobile}');
       print('CLOCK-IN REQUEST PAYLOAD: $requestBody');
       
-      // Perform POST request with a 10-second timeout safeguard
       final response = await http.post(
         Uri.parse(AppUrls.checkAttendPinMobile),
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
@@ -314,37 +308,93 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       print('CLOCK-IN RESPONSE STATUS: ${response.statusCode}');
       print('CLOCK-IN RESPONSE BODY: ${response.body}');
 
+      if (response.statusCode != 200) {
+        String errorMsg = 'Server error (${response.statusCode})';
+        try {
+          final errData = jsonDecode(response.body);
+          if (errData['message'] != null) {
+            errorMsg = errData['message'].toString();
+          }
+        } catch (_) {}
+        throw Exception(errorMsg);
+      }
+
+      // 2. OnGuard clockAttendance API Call
+      final onGuardPayload = {
+        "token": "9615f5f73c8819876148beba560c7df01a23c00c",
+        "lat": widget.latitude,
+        "lng": widget.longitude,
+        "imei": "0",
+        "nfc_tag": pin.trim(),
+        "site_id": widget.siteId,
+      };
+
+      print('ONGUARD CLOCK URL: https://s2.onguard.co.za/api/attendance/clockAttendance');
+      print('ONGUARD PAYLOAD: $onGuardPayload');
+
+      final onGuardResponse = await http.post(
+        Uri.parse('https://s2.onguard.co.za/api/attendance/clockAttendance'),
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode(onGuardPayload),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('OnGuard request timed out.');
+        },
+      );
+
+      print('ONGUARD RESPONSE STATUS: ${onGuardResponse.statusCode}');
+      print('ONGUARD RESPONSE BODY: ${onGuardResponse.body}');
+
       if (context.mounted) Navigator.pop(context);
 
-      // Validate HTTP response status codes
-      if (response.statusCode != 200) {
-        if (response.statusCode >= 500) {
-          throw Exception('Server error (${response.statusCode}). Please try again later.');
-        } else if (response.statusCode == 404) {
-          throw Exception('Endpoint not found (${response.statusCode}).');
+      if (onGuardResponse.statusCode != 200) {
+        String errorMsg = 'OnGuard server error (${onGuardResponse.statusCode})';
+        try {
+          final errData = jsonDecode(onGuardResponse.body);
+          if (errData['message'] != null) {
+            errorMsg = errData['message'].toString();
+          }
+        } catch (_) {}
+        throw Exception(errorMsg);
+      }
+
+      // Decode OnGuard response to evaluate true state from server message
+      final onGuardDecoded = jsonDecode(onGuardResponse.body);
+      final String onGuardStatus = onGuardDecoded['status']?.toString().toLowerCase() ?? '';
+      final String onGuardMessage = onGuardDecoded['message']?.toString() ?? '';
+
+      // Extract the actual employee number from the OnGuard message string (e.g. "Employee number . 12345..")
+      String employeeNumber = '';
+      final empMatch = RegExp(r'Employee number[^\d]*(\d+)', caseSensitive: false).firstMatch(onGuardMessage);
+      if (empMatch != null) {
+        employeeNumber = empMatch.group(1) ?? '';
+      }
+
+      if (onGuardStatus == 'success' || onGuardStatus == 'true' || onGuardStatus == '1') {
+        // Read actual server message to determine if it was a Clock-IN or Clock-OUT
+        final bool isServerClockedIn = onGuardMessage.toLowerCase().contains('in') || 
+                                       onGuardMessage.toLowerCase().contains('welcome');
+
+        if (isServerClockedIn) {
+          // SERVER VERIFIED CLOCK-IN
+          await prefs.setBool('is_clocked_in', true);
+          await prefs.setString('clocked_in_site_id', widget.siteId);
+
+          if (context.mounted) {
+            _showResultDialog(context, true, "Success! You are now clocked in.");
+          }
         } else {
-          throw Exception('Server returned status code ${response.statusCode}');
+          // SERVER VERIFIED CLOCK-OUT
+          await prefs.setBool('is_clocked_in', false);
+          await prefs.remove('clocked_in_site_id');
+
+          if (context.mounted) {
+            _showClockOutSuccessDialog(context, "Thank you, you are now clocked out.", employeeNumber);
+          }
         }
-      }
-
-      if (response.body.isEmpty) {
-        throw Exception('Empty response received from server.');
-      }
-
-      final dynamic decodedBody = jsonDecode(response.body);
-
-      if (decodedBody is! Map<String, dynamic>) {
-        throw Exception('Unexpected data format received from server.');
-      }
-
-      final String status = decodedBody['status']?.toString().toLowerCase() ?? '';
-      final String message = decodedBody['message']?.toString() ?? 'Clock-in completed.';
-
-      // Handle server status outcome
-      if (status == 'success' || status == 'true' || status == '1') {
-        if (context.mounted) _showResultDialog(context, true, message);
       } else {
-        if (context.mounted) _showResultDialog(context, false, message.isNotEmpty ? message : 'Clock-in failed.');
+        if (context.mounted) _showResultDialog(context, false, onGuardMessage.isNotEmpty ? onGuardMessage : 'Action failed.');
       }
 
     } on SocketException catch (e) {
@@ -365,6 +415,47 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       final cleanMessage = e.toString().replaceAll('Exception: ', '');
       setState(() => _error = cleanMessage);
     }
+  }
+
+  /// Displays popup dialog for successful clock-out including the parsed employee number, exiting the app when "Okay" is clicked.
+  void _showClockOutSuccessDialog(BuildContext context, String messageText, String employeeNumber) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.check_circle, color: Colors.green, size: 60),
+              const SizedBox(height: 24.0),
+              const Text("Clocked Out", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12.0),
+              Text(messageText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
+              if (employeeNumber.isNotEmpty) ...[
+                const SizedBox(height: 8.0),
+                Text(
+                  "Employee Number: $employeeNumber",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey),
+                ),
+              ],
+              const SizedBox(height: 28.0),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                onPressed: () => SystemNavigator.pop(),
+                child: const Text("Okay", style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Displays a popup dialog showing the final success or failure result of the clock-in process.
@@ -409,7 +500,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Live camera preview when initialized, otherwise show background placeholder
           if (ready)
             FittedBox(
               fit: BoxFit.cover,
@@ -422,7 +512,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
           else
             const ColoredBox(color: Color(0xFF04110F)),
 
-          // Overlay guiding oval shape for facial alignment
           IgnorePointer(
             child: CustomPaint(
               painter: _OvalGuidePainter(),
@@ -430,7 +519,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
             ),
           ),
 
-          // User interface controls overlaid on top of camera stream
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
@@ -444,7 +532,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                     ),
                   ),
                   const Spacer(),
-                  // Display error banner if any error state occurs
                   if (_error != null)
                     Material(
                       color: Colors.red[900]?.withAlpha(230),

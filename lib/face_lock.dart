@@ -33,7 +33,7 @@ class FaceLock {
       throw Exception('Image file does not exist.');
     }
 
-    // 1. Get exact image dimensions to perform percentage-based boundary checks
+    // Get exact image dimensions to perform percentage-based boundary checks
     final bytes = await file.readAsBytes();
     final decodedImage = await decodeImageFromList(bytes);
     final double imgW = decodedImage.width.toDouble();
@@ -58,7 +58,7 @@ class FaceLock {
       final face = faces.first;
       final box = face.boundingBox;
 
-      // 2. STRICT BOUNDARY CHECKS
+      // STRICT BOUNDARY CHECKS
       // Blocks the face if it spills off the top, bottom, or sides of the photo frame.
       if (box.top < (imgH * 0.08) || 
           box.bottom > (imgH * 0.92) || 
@@ -67,7 +67,7 @@ class FaceLock {
         throw Exception('INCOMPLETE_FACE');
       }
 
-      // 3. PROXIMITY CHECK (The Forehead Exploit Fix)
+      // PROXIMITY CHECK (The Forehead Exploit Fix)
       // If the bounding box takes up more than 75% of the screen height, they are too close.
       if (box.height > (imgH * 0.75)) {
         throw Exception('INCOMPLETE_FACE');
