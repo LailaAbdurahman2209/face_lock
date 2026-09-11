@@ -33,9 +33,9 @@ flutter:
     - assets/logo.svg
 
 flutter_launcher_icons:
-  image_path: "assets/final_icon.png"
+  image_path: "assets/onguard_final.png"
   android: true
   ios: true
   adaptive_icon_background: "#FF0000"
-  adaptive_icon_foreground: "assets/onguard_icon.png"
+  adaptive_icon_foreground: "assets/onguard_final.png"
   
