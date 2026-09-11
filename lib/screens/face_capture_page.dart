@@ -265,7 +265,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
   Future<void> executeClockInApiCall(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. COOLDOWN CHECK: Prevent backend errors within 2 minutes of last scan
+    // 1. COOLDOWN CHECK: Checked at the very beginning of the function (before loading dialog)
     final lastClock = prefs.getInt('last_clock_timestamp') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     final timePassed = now - lastClock;
@@ -395,7 +395,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       }
 
       if (onGuardStatus == 'success' || onGuardStatus == 'true' || onGuardStatus == '1') {
-        // 2. SAVE TIMESTAMP: Record success time to enforce 2-min buffer
+        // 2. SAVE TIMESTAMP: Record success time right after successful response
         await prefs.setInt('last_clock_timestamp', DateTime.now().millisecondsSinceEpoch);
 
         final bool isServerClockedIn = onGuardMessage.toLowerCase().contains('in') || 
@@ -471,7 +471,11 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                   backgroundColor: Colors.blue,
                   minimumSize: const Size(double.infinity, 50),
                 ),
-                onPressed: () => exit(0), // Instantly terminates app process on iOS
+                onPressed: () async {
+                  // Allow disk write queue to finish before closing app process
+                  await Future.delayed(const Duration(milliseconds: 500));
+                  exit(0);
+                },
                 child: const Text("Okay", style: TextStyle(color: Colors.white)),
               ),
             ],
@@ -505,9 +509,11 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                   backgroundColor: isSuccess ? Colors.blue : Colors.red,
                   minimumSize: const Size(double.infinity, 50),
                 ),
-                onPressed: () {
+                onPressed: () async {
                   if (isSuccess) {
-                    exit(0); // Force exit app on success
+                    // Allow disk write queue to finish before closing app process
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    exit(0);
                   } else {
                     Navigator.pop(context, true); // Dismiss dialog to retry on failure
                   }
