@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image/image.dart' as img;
 
 import '../face_lock.dart';
 import '../utils/app_urls.dart';
@@ -213,6 +214,14 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (leftEye == null || rightEye == null || nose == null || mouth == null) {
         throw Exception('Incomplete face detected. Ensure your eyes, nose, and mouth are fully inside the frame.');
+      }
+
+      // FIX FOR iOS ROTATION: Physically bake orientation into pixel data for BOTH Enroll & Sign-In
+      final imageBytes = await File(photo.path).readAsBytes();
+      final decodedImage = img.decodeImage(imageBytes);
+      if (decodedImage != null) {
+        final uprightImage = img.bakeOrientation(decodedImage);
+        await File(photo.path).writeAsBytes(img.encodeJpg(uprightImage));
       }
 
       if (!mounted) return;
