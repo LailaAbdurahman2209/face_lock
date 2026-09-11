@@ -261,8 +261,21 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
-  /// Executes backend API calls and enforces site-matching rules for clock-in vs clock-out.
+  /// Executes backend API calls and enforces site-matching rules and cooldown buffers.
   Future<void> executeClockInApiCall(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. COOLDOWN CHECK: Prevent backend errors within 2 minutes of last scan
+    final lastClock = prefs.getInt('last_clock_timestamp') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final timePassed = now - lastClock;
+
+    if (timePassed < 120000) { // 120,000 ms = 2 minutes
+      final remainingSeconds = ((120000 - timePassed) / 1000).ceil();
+      setState(() => _error = 'Please wait $remainingSeconds seconds before scanning again.');
+      return;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -270,7 +283,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     );
 
     try {
-      final prefs = await SharedPreferences.getInstance();
       bool isClockedIn = prefs.getBool('is_clocked_in') ?? false;
       String? clockedInSiteId = prefs.getString('clocked_in_site_id');
 
@@ -383,6 +395,9 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       }
 
       if (onGuardStatus == 'success' || onGuardStatus == 'true' || onGuardStatus == '1') {
+        // 2. SAVE TIMESTAMP: Record success time to enforce 2-min buffer
+        await prefs.setInt('last_clock_timestamp', DateTime.now().millisecondsSinceEpoch);
+
         final bool isServerClockedIn = onGuardMessage.toLowerCase().contains('in') || 
                                        onGuardMessage.toLowerCase().contains('welcome');
 
@@ -451,15 +466,14 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                 ),
               ],
               const SizedBox(height: 28.0),
-           // Inside _showClockOutSuccessDialog:
-             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              minimumSize: const Size(double.infinity, 50),
-             ),
-             onPressed: () => exit(0), // Instantly terminates app process on iOS
-             child: const Text("Okay", style: TextStyle(color: Colors.white)),
-             ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                onPressed: () => exit(0), // Instantly terminates app process on iOS
+                child: const Text("Okay", style: TextStyle(color: Colors.white)),
+              ),
             ],
           ),
         ),
@@ -486,21 +500,20 @@ class _FaceCapturePageState extends State<FaceCapturePage>
               const SizedBox(height: 12.0),
               Text(messageText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
               const SizedBox(height: 28.0),
-              // Inside _showResultDialog:
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                backgroundColor: isSuccess ? Colors.blue : Colors.red,
-                minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: isSuccess ? Colors.blue : Colors.red,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                onPressed: () {
+                  if (isSuccess) {
+                    exit(0); // Force exit app on success
+                  } else {
+                    Navigator.pop(context, true); // Dismiss dialog to retry on failure
+                  }
+                },
+                child: const Text("Okay", style: TextStyle(color: Colors.white)),
               ),
-              onPressed: () {
-                 if (isSuccess) {
-                   exit(0); // Force exit app on success
-                } else {
-                   Navigator.pop(context, true); // Dismiss dialog to retry on failure
-                }
-           },
-           child: const Text("Okay", style: TextStyle(color: Colors.white)),
-         ),
             ],
           ),
         ),
