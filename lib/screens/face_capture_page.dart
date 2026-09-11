@@ -187,9 +187,19 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) return;
 
+      // 1. FIX FOR iOS ROTATION: Bake orientation into image file BEFORE running ML Kit face detection
+      final imageBytes = await File(photo.path).readAsBytes();
+      final decodedImage = img.decodeImage(imageBytes);
+      if (decodedImage != null) {
+        final uprightImage = img.bakeOrientation(decodedImage);
+        await File(photo.path).writeAsBytes(img.encodeJpg(uprightImage, quality: 90));
+      }
+
+      // 2. Pass the saved upright image file to ML Kit Face Detector
       final inputImage = InputImage.fromFilePath(photo.path);
       final options = FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
+        minFaceSize: 0.15,
         enableLandmarks: true,
       );
       final faceDetector = FaceDetector(options: options);
@@ -214,14 +224,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (leftEye == null || rightEye == null || nose == null || mouth == null) {
         throw Exception('Incomplete face detected. Ensure your eyes, nose, and mouth are fully inside the frame.');
-      }
-
-      // FIX FOR iOS ROTATION: Physically bake orientation into pixel data for BOTH Enroll & Sign-In
-      final imageBytes = await File(photo.path).readAsBytes();
-      final decodedImage = img.decodeImage(imageBytes);
-      if (decodedImage != null) {
-        final uprightImage = img.bakeOrientation(decodedImage);
-        await File(photo.path).writeAsBytes(img.encodeJpg(uprightImage));
       }
 
       if (!mounted) return;
@@ -373,7 +375,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       final String onGuardStatus = onGuardDecoded['status']?.toString().toLowerCase() ?? '';
       final String onGuardMessage = onGuardDecoded['message']?.toString() ?? '';
 
-      // Extract the actual employee number from the OnGuard message string (e.g. "Employee number . 12345..")
+      // Extract the actual employee number from the OnGuard message string
       String employeeNumber = '';
       final empMatch = RegExp(r'Employee number[^\d]*(\d+)', caseSensitive: false).firstMatch(onGuardMessage);
       if (empMatch != null) {
@@ -381,12 +383,10 @@ class _FaceCapturePageState extends State<FaceCapturePage>
       }
 
       if (onGuardStatus == 'success' || onGuardStatus == 'true' || onGuardStatus == '1') {
-        // Read actual server message to determine if it was a Clock-IN or Clock-OUT
         final bool isServerClockedIn = onGuardMessage.toLowerCase().contains('in') || 
                                        onGuardMessage.toLowerCase().contains('welcome');
 
         if (isServerClockedIn) {
-          // SERVER VERIFIED CLOCK-IN
           await prefs.setBool('is_clocked_in', true);
           await prefs.setString('clocked_in_site_id', widget.siteId);
 
@@ -394,7 +394,6 @@ class _FaceCapturePageState extends State<FaceCapturePage>
             _showResultDialog(context, true, "Success! You are now clocked in.");
           }
         } else {
-          // SERVER VERIFIED CLOCK-OUT
           await prefs.setBool('is_clocked_in', false);
           await prefs.remove('clocked_in_site_id');
 
@@ -426,7 +425,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     }
   }
 
-  /// Displays popup dialog for successful clock-out including the parsed employee number, exiting the app when "Okay" is clicked.
+  /// Displays popup dialog for successful clock-out including the parsed employee number.
   void _showClockOutSuccessDialog(BuildContext context, String messageText, String employeeNumber) {
     showDialog(
       context: context,
