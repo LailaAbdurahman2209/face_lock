@@ -451,14 +451,15 @@ class _FaceCapturePageState extends State<FaceCapturePage>
                 ),
               ],
               const SizedBox(height: 28.0),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                onPressed: () => SystemNavigator.pop(),
-                child: const Text("Okay", style: TextStyle(color: Colors.white)),
-              ),
+           // Inside _showClockOutSuccessDialog:
+             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              minimumSize: const Size(double.infinity, 50),
+             ),
+             onPressed: () => exit(0), // Instantly terminates app process on iOS
+             child: const Text("Okay", style: TextStyle(color: Colors.white)),
+             ),
             ],
           ),
         ),
@@ -485,14 +486,21 @@ class _FaceCapturePageState extends State<FaceCapturePage>
               const SizedBox(height: 12.0),
               Text(messageText, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
               const SizedBox(height: 28.0),
+              // Inside _showResultDialog:
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isSuccess ? Colors.blue : Colors.red,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                onPressed: () => isSuccess ? SystemNavigator.pop() : Navigator.pop(context, true),
-                child: const Text("Okay", style: TextStyle(color: Colors.white)),
+                backgroundColor: isSuccess ? Colors.blue : Colors.red,
+                minimumSize: const Size(double.infinity, 50),
               ),
+              onPressed: () {
+                 if (isSuccess) {
+                   exit(0); // Force exit app on success
+                } else {
+                   Navigator.pop(context, true); // Dismiss dialog to retry on failure
+                }
+           },
+           child: const Text("Okay", style: TextStyle(color: Colors.white)),
+         ),
             ],
           ),
         ),
