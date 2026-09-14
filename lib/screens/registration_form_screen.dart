@@ -312,13 +312,17 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // PIN field with toggle visibility
+                  // PIN field with toggle visibility (restricted to exactly 6 digits)
                   TextFormField(
                     controller: _pinController,
                     style: const TextStyle(color: Colors.white),
                     keyboardType: TextInputType.number,
                     obscureText: _obscurePin,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    maxLength: 6,
                     decoration: _customInputDecoration(
                       'Supervisor PIN',
                       Icons.lock,
@@ -333,9 +337,10 @@ class _RegistrationFormScreenState extends State<RegistrationFormScreen> {
                           });
                         },
                       ),
-                    ),
+                    ).copyWith(counterText: ""),
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'Please enter the PIN';
+                      if (value.length != 6) return 'PIN must be exactly 6 digits';
                       return null;
                     },
                   ),
