@@ -170,7 +170,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized || _busy) return;
 
-    // 1. COOLDOWN CHECK: Checked instantly when tapping Scan, before taking photo or opening camera work
+    // COOLDOWN CHECK: Checked instantly when tapping Scan, before taking photo or opening camera work
     if (!_enrolling) {
       final prefs = await SharedPreferences.getInstance();
       int lastClock = prefs.getInt('last_clock_timestamp') ?? 0;
@@ -211,7 +211,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
 
       if (!mounted) return;
 
-      // 1. FIX FOR iOS ROTATION: Bake orientation into image file BEFORE running ML Kit face detection
+      // FIX FOR iOS ROTATION: Bake orientation into image file BEFORE running ML Kit face detection
       final imageBytes = await File(photo.path).readAsBytes();
       final decodedImage = img.decodeImage(imageBytes);
       if (decodedImage != null) {
@@ -219,7 +219,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         await File(photo.path).writeAsBytes(img.encodeJpg(uprightImage, quality: 90));
       }
 
-      // 2. Pass the saved upright image file to ML Kit Face Detector
+      //Pass the saved upright image file to ML Kit Face Detector
       final inputImage = InputImage.fromFilePath(photo.path);
       final options = FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
@@ -317,7 +317,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         return; 
       }
 
-      // 1. Attendance verification API call (checkAttendPinMobile)
+      // Attendance verification API call (checkAttendPinMobile)
       final requestBody = {
         'name': name.trim(), 
         'id_number': idNumber.trim(), 
@@ -355,7 +355,7 @@ class _FaceCapturePageState extends State<FaceCapturePage>
         throw Exception(errorMsg);
       }
 
-      // 2. OnGuard clockAttendance API Call
+      // OnGuard clockAttendance API Call
       final onGuardPayload = {
         "token": "9615f5f73c8819876148beba560c7df01a23c00c",
         "lat": widget.latitude,
