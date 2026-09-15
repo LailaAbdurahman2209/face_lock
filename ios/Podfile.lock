@@ -110,8 +110,8 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
-  google_mlkit_commons: 75b2579ccf522fe01d42e689babda04c4510ba2f
-  google_mlkit_face_detection: 9dc1acbfcec8a5f7920ec85beb90a0a79e52fd5d
+  google_mlkit_commons: b4dfe2f6ae4cbf24010dc6640a28984d01343c86
+  google_mlkit_face_detection: 21baa82ab858694c846f0e0bfa64e3a3ca7bceda
   GoogleDataTransport: a24e58982ab3ba2f64d79613e027fe7f57e88539
   GoogleMLKit: b1eee21a41c57704fe72483b15c85cb2c0cd7444
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
@@ -125,8 +125,8 @@ SPEC CHECKSUMS:
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   TensorFlowLiteC: 20785a69299185a379ba9852b6625f00afd7984a
   TensorFlowLiteSwift: 3a4928286e9e35bdd3e17970f48e53c80d25e793
-  tflite_flutter: 9433d086a3060431bbc9f3c7c20d017db0e72d08
+  tflite_flutter: 64b192e11352fe36943ab6656e1d49207f1a5595
 
 PODFILE CHECKSUM: 3ba3a73b1b12adcf321a227a745625fe0888cc82
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.17.0
