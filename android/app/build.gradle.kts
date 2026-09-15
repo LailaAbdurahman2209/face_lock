@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.fd"
+    namespace = "za.co.onguard.identityclock"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.fd"
+        applicationId = "za.co.onguard.identityclock"
         minSdk = 24
         targetSdk = 36
         versionCode = flutter.versionCode
