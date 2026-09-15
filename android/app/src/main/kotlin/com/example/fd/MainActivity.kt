@@ -1,4 +1,4 @@
-package za.co.onguard.identityclock
+package za.co.onguard.identityclk
 
 import io.flutter.embedding.android.FlutterActivity
 
