@@ -35,7 +35,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
     _startValidationProcess();
   }
 
-  // Check location, verify user credentials, and fetch work sites
+  // Check location, verify user credentials, and fetch work sites simultaneously
   Future<void> _startValidationProcess() async {
     setState(() {
       _isLoading = true;
@@ -73,16 +73,17 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
       print('DEBUG - Resolved customerId: $customerId, pin: $pin');
 
-      // Verify if user is active via API
-      bool isActive = await ClockInService.validateUser(customerId, pin);
-      print('DEBUG - Validation API result for user active status: $isActive');
+      // ONE API call to validate PIN and fetch sites simultaneously
+      final fetchedSites = await ClockInService.validateAndGetSites(customerId, pin);
+      print('DEBUG - Validation API returned sites: ${fetchedSites != null}');
 
-      if (isActive) {
-        // Get high-accuracy GPS coordinates and fetch assigned work sites
+      if (fetchedSites != null) {
+        // Get high-accuracy GPS coordinates
         _currentLocation = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
         );
-        _sites = await ClockInService.fetchSites();
+        
+        _sites = fetchedSites;
         
         if (_sites.isEmpty) {
           _siteError = "No active work sites assigned to your profile. Please contact your supervisor.";
@@ -109,7 +110,9 @@ class _ClockInScreenState extends State<ClockInScreen> {
       final cleanMessage = e.toString().replaceAll('Exception: ', '');
       _showErrorDialog(cleanMessage);
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
